@@ -20,15 +20,15 @@ An L-system can be specified in a text file. For example:
 angle = 12.5
 X -> F[+X]F[+X]-X
 F -> FF
+
+# X defines the recursive nature of the system
+# F is used to define a segment of the system that will not recurse
+# [ pushes a copy of the current state on a stack
+# ] pops the current state off the stack
+# + rotates counter-clockwise by angle
+# - rotates clockwise by angle
 ```
-X defines the recursive nature of the system
 
-F is used to define a segment of the system that will not recurse
+## Contributors
 
-[ pushes a copy of the current state on a stack
-
-] pops the current state off the stack
-
-+ rotates counter-clockwise by angle
-
-- rotates clockwise by angle
+[Eric Roberts](https://github.com/E-Rockalanche)
