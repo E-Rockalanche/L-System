@@ -13,6 +13,12 @@ The program uses an l-system grammar file to render an l-system up to a recursiv
 ./assignment4 tree
 ```
 
+Use the mouse to rotate the fractal
+
+Use the mouse wheel to zoom in and out
+
+Use UP to grow and DOWN to shrink the fractal
+
 ## L-System Grammar
 
 An L-system can be specified in a text file. For example:
