@@ -29,6 +29,7 @@ typedef std::map<char, std::string> Grammar;
 
 Grammar grammar;
 std::string fractal = "X";
+float girth = 0.5;
 
 int last_mpos[2];
 int cur_mpos[2];
@@ -36,7 +37,6 @@ bool arcball_on = false;
 float camera_pos[3] = { 0.0, 0.0, 20.0 };
 
 struct State {
-	float angle;
 	Vec3 position;
 	float radius;
 	Vec3 axis[3];
@@ -47,7 +47,11 @@ float angle_increment;
 int fractal_depth = 0;
 
 typedef std::vector<Vec3> VertexBuffer;
-std::vector<VertexBuffer> buffer_list;
+std::vector<VertexBuffer> cylinder_list;
+VertexBuffer spine;
+
+bool show_girth = false;
+bool show_spine = true;
 
 void assert(bool condition, const char* message) {
 	if (!condition) {
@@ -84,13 +88,9 @@ void generateRodVertices(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6)
 	Vec3 y = Vec3::crossProduct(x, l);
 	y.normalize();
 
-	buffer_list.resize(buffer_list.size() + 1);
-	VertexBuffer& cur_buffer = buffer_list.back();
+	cylinder_list.resize(cylinder_list.size() + 1);
+	VertexBuffer& cur_buffer = cylinder_list.back();
 
-	/*
-	glColor3f(1, 1, 1);
-	glBegin(GL_TRIANGLE_STRIP);
-	*/
 	for(int i = 0; i < sections + 1; i++) {
 		float angle = 2.0 * M_PI * (i % sections) / sections;
 		Vec3 r = std::cos(angle) * x + std::sin(angle) * y;
@@ -99,19 +99,16 @@ void generateRodVertices(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6)
 
 		cur_buffer.push_back(p1);
 		cur_buffer.push_back(p2);
-
-		/*
-		glVertex3f(p1.x, p1.y, p1.z);
-		glVertex3f(p2.x, p2.y, p2.z);
-		*/
 	}
-	// glEnd();
 }
 
 void generateFractalVertices(std::string fractal, State initial_state,
 		float fractal_scale, float angle_increment) {
 	std::vector<State> state_stack;
 	state_stack.push_back(initial_state);
+
+	cylinder_list.clear();
+	spine.clear();
 
 	for(int i = 0; i < (int)fractal.size(); ++i) {
 		State& cur_state = state_stack.back();
@@ -121,18 +118,17 @@ void generateFractalVertices(std::string fractal, State initial_state,
 				{
 					// draw forward
 					Vec3 p1 = cur_state.position;
-					/*
-					float cur_angle = cur_state.angle * M_PI / 180.0;
-					*/
 
 					cur_state.position += fractal_scale * cur_state.axis[1];
 
 					Vec3 p2 = cur_state.position;
 					float radius1 = cur_state.radius;
-					cur_state.radius *= 1.0 - fractal_scale/10.0;
-					// cur_state.radius = std::max(cur_state.radius * 0.95, 0.01);
+					cur_state.radius *= (10.0 - fractal_scale)/10.0;
 
 					generateRodVertices(p1, p2, radius1, cur_state.radius);
+
+					spine.push_back(p1);
+					spine.push_back(p2);
 
 					float roll = angle_increment * fractal_scale / 5.0;
 					Matrix rotation = calcRotationMatrix(roll, cur_state.axis[1]);
@@ -154,7 +150,6 @@ void generateFractalVertices(std::string fractal, State initial_state,
 					for(int i = 0; i < 3; i++) {
 						cur_state.axis[i] = cur_state.axis[i] * rotation;
 					}
-					// cur_state.angle += angle_increment;
 				}
 				break;
 
@@ -169,7 +164,6 @@ void generateFractalVertices(std::string fractal, State initial_state,
 					for(int i = 0; i < 3; i++) {
 						cur_state.axis[i] = cur_state.axis[i] * rotation;
 					}
-					// cur_state.angle -= angle_increment;
 				}
 				break;
 
@@ -198,6 +192,16 @@ void generateFractalVertices(std::string fractal, State initial_state,
 }
 
 void keyboardInput(unsigned char key, int x, int y) {
+	switch(key) {
+		case 'g':
+		case 'G':
+			show_girth = !show_girth;
+			break;
+		case 's':
+		case 'S':
+			show_spine = !show_spine;
+			break;
+	}
 }
 
 void generateFractal() {
@@ -209,15 +213,12 @@ void generateFractal() {
 
 	State initial_state;
 	initial_state.position = Vec3(0, -7, 0);
-	initial_state.angle = 90.0;
-	initial_state.radius = 0.5;
+	initial_state.radius = girth;
 	for(int i = 0; i < 3; i++) {
 		Vec3 v;
 		v[i] = 1;
 		initial_state.axis[i] = v;
 	}
-
-	buffer_list.clear();
 
 	generateFractalVertices(fractal, initial_state, fractal_scale, angle_increment);
 }
@@ -338,8 +339,20 @@ void renderScene(void)
 		// glRotatef(rotation_angle * 180 / M_PI, rotation_axis.x, rotation_axis.y, rotation_axis.z);
 		glMultMatrixf(rotation_matrix.data);
 
-		for(int i = 0; i < (int)buffer_list.size(); i++) {
-			drawTriangleStrip(buffer_list[i]);
+		if (show_spine) {
+			glColor3f(1, 1, 1);
+			glBegin(GL_LINES);
+			for(int i = 0; i < (int)spine.size(); i++) {
+				const Vec3& v = spine[i];
+				glVertex3f(v.x, v.y, v.z);
+			}
+			glEnd();
+		}
+
+		if (show_girth) {
+			for(int i = 0; i < (int)cylinder_list.size(); i++) {
+				drawTriangleStrip(cylinder_list[i]);
+			}
 		}
 
 		// drawFractal(fractal, initial_state, fractal_scale, angle_increment);
@@ -366,6 +379,8 @@ bool parseLSystemFile(const char* filename) {
 					if (str == "angle") {
 						fin >> angle_increment;
 						angle_increment *= M_PI / 180.0;
+					} else if (str == "girth") {
+						fin >> girth;
 					} else {
 						std::cout << "Invalid variable: " << str << '\n';
 					}
