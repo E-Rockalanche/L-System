@@ -130,7 +130,7 @@ void generateFractalVertices(std::string fractal, State initial_state,
 					spine.push_back(p1);
 					spine.push_back(p2);
 
-					float roll = angle_increment * fractal_scale / 5.0;
+					float roll = angle_increment * fractal_scale;
 					Matrix rotation = calcRotationMatrix(roll, cur_state.axis[1]);
 					for(int i = 0; i < 3; i++) {
 						cur_state.axis[i] = cur_state.axis[i] * rotation;
