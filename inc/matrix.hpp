@@ -20,5 +20,6 @@ public:
 };
 
 Matrix calcRotationMatrix(float angle, const Vec3& axis);
+Matrix calcRotationMatrix(float angle, int axis);
 
 #endif

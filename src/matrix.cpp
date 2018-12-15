@@ -79,3 +79,40 @@ Matrix calcRotationMatrix(float angle, const Vec3& axis) {
 	
 	return matrix;
 }
+
+Matrix calcRotationMatrix(float angle, int axis) {
+	Matrix rotation;
+	float cos = std::cos(angle);
+	float sin = std::sin(angle);
+
+	switch(axis) {
+		case 0: // x
+			rotation[5] = cos;
+			rotation[6] = sin;
+
+			rotation[10] = -sin;
+			rotation[11] = cos;
+			break;
+
+		case 1: // y
+			rotation[0] = cos;
+			rotation[2] = -sin;
+
+			rotation[8] = sin;
+			rotation[10] = cos;
+			break;
+
+		case 2: // z
+			rotation[0] = cos;
+			rotation[1] = sin;
+
+			rotation[4] = -sin;
+			rotation[5] = cos;
+			break;
+
+		default: // error
+			break;
+	}
+	
+	return rotation;
+}

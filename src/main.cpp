@@ -11,6 +11,7 @@ Eric Roberts
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <cctype>
 
 #include <GL/gl.h>
 #include <GL/glu.h>
@@ -23,33 +24,32 @@ Eric Roberts
 #define SCREEN_HEIGHT 512
 #define FULL_SCALE 10.0
 
-Matrix test;
-
 typedef std::map<char, std::string> Grammar;
 
-Grammar grammar;
-std::string fractal = "X";
-float girth = 0.5;
-
-int last_mpos[2];
-int cur_mpos[2];
-bool arcball_on = false;
-float camera_pos[3] = { 0.0, 0.0, 20.0 };
-
+// L-system variables
 struct State {
 	Vec3 position;
 	float radius;
 	Vec3 axis[3];
 };
-
-float fractal_scale = FULL_SCALE;
+Grammar grammar;
+std::string initial_axoim = "X";
+std::string fractal;
 float angle_increment;
+float base_girth = 0.5;
+float fractal_scale = FULL_SCALE;
 int fractal_depth = 0;
 
+// arcball variables
+int last_mpos[2];
+int cur_mpos[2];
+bool arcball_on = false;
+float camera_pos[3] = { 0.0, 0.0, 20.0 };
+
+// render variables
 typedef std::vector<Vec3> VertexBuffer;
 std::vector<VertexBuffer> cylinder_list;
 VertexBuffer spine;
-
 bool show_girth = false;
 bool show_spine = true;
 
@@ -79,18 +79,22 @@ std::string expandFractal(std::string fractal, Grammar grammar) {
 }
 
 void generateRodVertices(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6) {
+	// generate axis
 	Vec3 l = v2 - v1;
-
-	Vec3 x = l + Vec3(1, 1, 1);
+	Vec3 x = l + Vec3(1, 0, 0);
+	if (Vec3::crossProduct(x, l) == Vec3(0, 0, 0)) {
+		x += Vec3(0, 1, 0);
+	}
 	x -= Vec3::project(x, l);
 	x.normalize();
-
 	Vec3 y = Vec3::crossProduct(x, l);
 	y.normalize();
 
+	// allocate vertex buffer
 	cylinder_list.resize(cylinder_list.size() + 1);
 	VertexBuffer& cur_buffer = cylinder_list.back();
 
+	// calculate rod vertices
 	for(int i = 0; i < sections + 1; i++) {
 		float angle = 2.0 * M_PI * (i % sections) / sections;
 		Vec3 r = std::cos(angle) * x + std::sin(angle) * y;
@@ -104,6 +108,7 @@ void generateRodVertices(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6)
 
 void generateFractalVertices(std::string fractal, State initial_state,
 		float fractal_scale, float angle_increment) {
+
 	std::vector<State> state_stack;
 	state_stack.push_back(initial_state);
 
@@ -112,81 +117,73 @@ void generateFractalVertices(std::string fractal, State initial_state,
 
 	for(int i = 0; i < (int)fractal.size(); ++i) {
 		State& cur_state = state_stack.back();
-		switch(fractal[i]) {
-			case 'F':
-			case 'X':
-				{
-					// draw forward
-					Vec3 p1 = cur_state.position;
+		char c = fractal[i];
 
-					cur_state.position += fractal_scale * cur_state.axis[1];
+		if (std::isalpha(c)) {
+			// draw forward
+			Vec3 p1 = cur_state.position;
 
-					Vec3 p2 = cur_state.position;
-					float radius1 = cur_state.radius;
-					cur_state.radius *= (10.0 - fractal_scale)/10.0;
+			cur_state.position += fractal_scale * cur_state.axis[1];
 
-					generateRodVertices(p1, p2, radius1, cur_state.radius);
+			Vec3 p2 = cur_state.position;
+			float radius1 = cur_state.radius;
+			cur_state.radius *= (10.0 - fractal_scale)/10.0;
 
-					spine.push_back(p1);
-					spine.push_back(p2);
+			generateRodVertices(p1, p2, radius1, cur_state.radius);
 
-					float roll = angle_increment * fractal_scale;
-					Matrix rotation = calcRotationMatrix(roll, cur_state.axis[1]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
+			spine.push_back(p1);
+			spine.push_back(p2);
+		} else if (c == '[') {
+			// push stack
+			state_stack.push_back(cur_state);
+		} else if (c == ']') {
+			// pop stack
+			assert(state_stack.size() > 1, "popping initial state");
+			state_stack.pop_back();
+		} else if (!std::isspace(c)) {
+			Vec3 axis;
+			float angle = angle_increment;
+			switch(c) {
+				case '+': // rotate left
+					axis = cur_state.axis[2];
+					break;
 
-				}
-				break;
-
-			case '+':
-				{
-					// rotate counter-clockwise
-					Matrix rotation = calcRotationMatrix(angle_increment, cur_state.axis[2]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-					rotation = calcRotationMatrix(M_PI / 3.0, cur_state.axis[1]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-				}
-				break;
-
-			case '-':
-				{
-					// rotate clockwise
-					Matrix rotation = calcRotationMatrix(-angle_increment, cur_state.axis[2]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-					rotation = calcRotationMatrix(-M_PI / 3.0, cur_state.axis[1]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-				}
-				break;
-
-			case '[':
-				// push stack
-				state_stack.push_back(cur_state);
-				break;
-
-			case ']':
-				// pop stack
-				assert(state_stack.size() > 1, "popping initial state");
-				state_stack.pop_back();
-				break;
-
-			case ' ':
-			case '\t':
-			case '\n':
-			case '\v':
-				break;
-
-			default:
-				std::cout << "invalid token: " << fractal[i] << '\n';
-				throw std::runtime_error("invalid token");
+				case '-': // rotate right
+					axis = cur_state.axis[2];
+					angle = -angle;
+					break;
+					
+				case '&': // pitch down
+					axis = cur_state.axis[0];
+					angle = -angle;
+					break;
+					
+				case '^': // pitch up
+					axis = cur_state.axis[0];
+					break;
+					
+				case '\\': // roll left
+					axis = cur_state.axis[1];
+					angle = -angle;
+					break;
+					
+				case '/': // roll right
+					axis = cur_state.axis[1];
+					break;
+					
+				case '|': // turn around
+					axis = cur_state.axis[2];
+					angle = M_PI;
+					break;
+					
+				default: // invalid token
+					std::cout << "invalid token: " << fractal[i] << '\n';
+					throw std::runtime_error("invalid token");
+			}
+			Matrix rotation = calcRotationMatrix(angle, axis);
+			for(int i = 0; i < 3; i++) {
+				cur_state.axis[i] = cur_state.axis[i] * rotation;
+			}
 		}
 	}
 }
@@ -205,7 +202,7 @@ void keyboardInput(unsigned char key, int x, int y) {
 }
 
 void generateFractal() {
-	fractal = "X";
+	fractal = initial_axoim;
 	for(int i = 0; i < fractal_depth; i++) {
 		fractal = expandFractal(fractal, grammar);
 	}
@@ -213,7 +210,7 @@ void generateFractal() {
 
 	State initial_state;
 	initial_state.position = Vec3(0, -7, 0);
-	initial_state.radius = girth;
+	initial_state.radius = base_girth;
 	for(int i = 0; i < 3; i++) {
 		Vec3 v;
 		v[i] = 1;
@@ -363,8 +360,9 @@ void renderScene(void)
 }
 
 bool parseLSystemFile(const char* filename) {
+	bool ok = true;
 	std::ifstream fin(filename);
-	while(!fin.eof() && fin.good()) {
+	while(!fin.eof() && fin.good() && ok) {
 		std::string str;
 
 		fin >> str;
@@ -376,17 +374,21 @@ bool parseLSystemFile(const char* filename) {
 				std::string op;
 				fin >> op;
 				if (op == "=") {
-					if (str == "angle") {
+					if (str == "d") {
 						fin >> angle_increment;
 						angle_increment *= M_PI / 180.0;
-					} else if (str == "girth") {
-						fin >> girth;
+					} else if (str == "g") {
+						fin >> base_girth;
+					} else if (str == "w") {
+						fin >> initial_axoim;
 					} else {
 						std::cout << "Invalid variable: " << str << '\n';
+						ok = false;
 					}
 				} else if (op == "->") {
 					if (str.size() != 1) {
 						std::cout << "rule " << str << " must be one character\n";
+						ok = false;
 					} else {
 						std::string rule;
 						std::getline(fin, rule);
@@ -397,11 +399,17 @@ bool parseLSystemFile(const char* filename) {
 					}
 				} else {
 					std::cout << "Invalid operation: " << op << '\n';
+					ok = false;
 				}
 			}
 		}
 	}
-	return fin.eof();
+
+	std::cout << "angle: " << angle_increment << '\n';
+	std::cout << "base girth: " << base_girth << '\n';
+	std::cout << "initial axoim: " << initial_axoim << '\n';
+
+	return ok && fin.eof();
 }
 
 int main(int argc, char** argv) {

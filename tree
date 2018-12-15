@@ -1,4 +1,5 @@
-angle = 22.5
-girth = 0.7
+d = 22.5
+g = 0.7
+w = X
 X -> F[++X]F[+X]--X
 F -> FF
