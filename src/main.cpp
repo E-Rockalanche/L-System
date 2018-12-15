@@ -438,10 +438,6 @@ bool parseLSystemFile(const char* filename) {
 		}
 	}
 
-	std::cout << "angle: " << angle_increment << '\n';
-	std::cout << "base girth: " << base_girth << '\n';
-	std::cout << "initial axoim: " << initial_axoim << '\n';
-
 	return ok && fin.eof();
 }
 
