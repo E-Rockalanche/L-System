@@ -19,6 +19,7 @@ Eric Roberts
 
 #include "vec3.hpp"
 #include "matrix.hpp"
+#include "light.hpp"
 
 #define SCREEN_WIDTH 512
 #define SCREEN_HEIGHT 512
@@ -48,10 +49,16 @@ float camera_pos[3] = { 0.0, 0.0, 20.0 };
 
 // render variables
 typedef std::vector<Vec3> VertexBuffer;
-std::vector<VertexBuffer> cylinder_list;
+std::vector<VertexBuffer> branch_vertices;
+std::vector<VertexBuffer> branch_normals;
 VertexBuffer spine;
 bool show_girth = false;
 bool show_spine = true;
+
+Light light((const float[4]){1, 1, 1, 1},
+	(const float[4]){1, 1, 1, 1},
+	(const float[4]){0.1, 0.1, 0.1, 1},
+	(const float[4]){0, 0, 20, 1});
 
 void assert(bool condition, const char* message) {
 	if (!condition) {
@@ -81,28 +88,33 @@ std::string expandFractal(std::string fractal, Grammar grammar) {
 void generateRodVertices(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6) {
 	// generate axis
 	Vec3 l = v2 - v1;
-	Vec3 x = l + Vec3(1, 0, 0);
+	Vec3 x = l + Vec3(10, 10, 10);
 	if (Vec3::crossProduct(x, l) == Vec3(0, 0, 0)) {
-		x += Vec3(0, 1, 0);
+		x += Vec3(0, 10, 0);
 	}
 	x -= Vec3::project(x, l);
 	x.normalize();
-	Vec3 y = Vec3::crossProduct(x, l);
+	Vec3 y = Vec3::crossProduct(l, x);
 	y.normalize();
 
-	// allocate vertex buffer
-	cylinder_list.resize(cylinder_list.size() + 1);
-	VertexBuffer& cur_buffer = cylinder_list.back();
+	// allocate buffers
+	branch_vertices.push_back(VertexBuffer());
+	branch_normals.push_back(VertexBuffer());
+	VertexBuffer& cur_buffer = branch_vertices.back();
+	VertexBuffer& cur_normals = branch_normals.back();
 
-	// calculate rod vertices
+	// calculate rod vertices and normals
 	for(int i = 0; i < sections + 1; i++) {
 		float angle = 2.0 * M_PI * (i % sections) / sections;
 		Vec3 r = std::cos(angle) * x + std::sin(angle) * y;
 		Vec3 p1 = v1 + r1 * r;
 		Vec3 p2 = v2 + r2 * r;
 
-		cur_buffer.push_back(p1);
 		cur_buffer.push_back(p2);
+		cur_buffer.push_back(p1);
+
+		cur_normals.push_back(r);
+		cur_normals.push_back(r);
 	}
 }
 
@@ -112,7 +124,8 @@ void generateFractalVertices(std::string fractal, State initial_state,
 	std::vector<State> state_stack;
 	state_stack.push_back(initial_state);
 
-	cylinder_list.clear();
+	branch_vertices.clear();
+	branch_normals.clear();
 	spine.clear();
 
 	for(int i = 0; i < (int)fractal.size(); ++i) {
@@ -127,7 +140,10 @@ void generateFractalVertices(std::string fractal, State initial_state,
 
 			Vec3 p2 = cur_state.position;
 			float radius1 = cur_state.radius;
-			cur_state.radius *= (10.0 - fractal_scale)/10.0;
+			
+			// cur_state.radius *= (10.0 - fractal_scale)/10.0;
+
+			cur_state.radius *= 1.0 - 1.0 / std::pow(2, fractal_depth);
 
 			generateRodVertices(p1, p2, radius1, cur_state.radius);
 
@@ -282,23 +298,37 @@ Vec3 getArcballVector(int x, int y) {
 	return point;
 }
 
-void drawTriangleStrip(const VertexBuffer& buffer) {
-	glColor3f(1, 1, 1);
-	glBegin(GL_TRIANGLE_STRIP);
-	for(int i = 0; i < (int)buffer.size(); ++i) {
-		const Vec3& v = buffer[i];
-		glVertex3f(v.x, v.y, v.z);
-	}
-	glEnd();
+void drawTriangleStrip(const VertexBuffer& vertices, const VertexBuffer& normals) {
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glVertexPointer(3, GL_FLOAT, 0, vertices.data());
+
+	glEnableClientState(GL_NORMAL_ARRAY);
+	glNormalPointer(GL_FLOAT, 0, normals.data());
+
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, vertices.size());
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_NORMAL_ARRAY);
 }
 
-// GLUT callback to handle rendering the scene
-void renderScene(void)
-{
+void renderScene() {
 	//rotation
 	static Matrix rotation_matrix;
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glEnable(GL_NORMALIZE);
+	glShadeModel(GL_SMOOTH);
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+
+	glPolygonMode(GL_FRONT, GL_FILL);
+
+	glEnable(GL_LIGHTING);
+	glEnable(GL_LIGHT0);
+	glLightfv(GL_LIGHT0, GL_SPECULAR, light.specular);
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, light.diffuse);
+	glLightfv(GL_LIGHT0, GL_AMBIENT, light.ambient);
+	glLightfv(GL_LIGHT0, GL_POSITION, light.position);
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
@@ -314,7 +344,6 @@ void renderScene(void)
 			   0, 0, 0, 	// Lookat position
   			   0, 1, 0 );	// Up vector
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	glPushMatrix();
 	{
@@ -333,10 +362,10 @@ void renderScene(void)
 			}
 		}
 		
-		// glRotatef(rotation_angle * 180 / M_PI, rotation_axis.x, rotation_axis.y, rotation_axis.z);
 		glMultMatrixf(rotation_matrix.data);
 
 		if (show_spine) {
+			/*
 			glColor3f(1, 1, 1);
 			glBegin(GL_LINES);
 			for(int i = 0; i < (int)spine.size(); i++) {
@@ -344,15 +373,19 @@ void renderScene(void)
 				glVertex3f(v.x, v.y, v.z);
 			}
 			glEnd();
+			*/
+
+			glEnableClientState(GL_VERTEX_ARRAY);
+			glVertexPointer(3, GL_FLOAT, 0, spine.data());
+			glDrawArrays(GL_LINES, 0, spine.size());
+			glDisableClientState(GL_VERTEX_ARRAY);
 		}
 
 		if (show_girth) {
-			for(int i = 0; i < (int)cylinder_list.size(); i++) {
-				drawTriangleStrip(cylinder_list[i]);
+			for(int i = 0; i < (int)branch_vertices.size(); i++) {
+				drawTriangleStrip(branch_vertices[i], branch_normals[i]);
 			}
 		}
-
-		// drawFractal(fractal, initial_state, fractal_scale, angle_increment);
 	}
 	glPopMatrix();
 
