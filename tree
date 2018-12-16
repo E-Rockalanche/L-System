@@ -1,4 +1,9 @@
-angle = 22.5
-girth = 0.7
-X -> F[++X]F[+X]--X
-F -> FF
+pitch = 20
+yaw = 20
+roll = 120
+w = X
+radius = 0.75
+rscale = 0.75
+length = 10
+lscale = 0.6
+X -> F[&&*X]\[&&*X]\&*F[^^X]X

@@ -11,6 +11,7 @@ Eric Roberts
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <cctype>
 
 #include <GL/gl.h>
 #include <GL/glu.h>
@@ -18,40 +19,69 @@ Eric Roberts
 
 #include "vec3.hpp"
 #include "matrix.hpp"
+#include "light.hpp"
 
 #define SCREEN_WIDTH 512
 #define SCREEN_HEIGHT 512
-#define FULL_SCALE 10.0
-
-Matrix test;
 
 typedef std::map<char, std::string> Grammar;
 
-Grammar grammar;
-std::string fractal = "X";
-float girth = 0.5;
+// L-system variables
+struct State {
+	Vec3 position;
+	float radius;
+	float length;
+	Vec3 axis[3];
 
+	State(Vec3 p, float r, float l) {
+		position = p;
+		radius = r;
+		length = l;
+		for (int i = 0; i < 3; i++) {
+			Vec3 v;
+			v[i] = 1;
+			axis[i] = v;
+		}
+	}
+};
+std::string fractal = "X";
+int fractal_depth = 0;
+
+// file variables
+Grammar grammar;
+std::string initial_axoim = "X";
+float pitch = 0.0;
+float yaw = 0.0;
+float roll = 0.0;
+float base_radius = 0.5;
+float radius_scale = 0.5;
+float base_length = 10.0;
+float length_scale = 0.5;
+
+// arcball variables
 int last_mpos[2];
 int cur_mpos[2];
 bool arcball_on = false;
 float camera_pos[3] = { 0.0, 0.0, 20.0 };
 
-struct State {
-	Vec3 position;
-	float radius;
-	Vec3 axis[3];
-};
-
-float fractal_scale = FULL_SCALE;
-float angle_increment;
-int fractal_depth = 0;
-
+// render variables
 typedef std::vector<Vec3> VertexBuffer;
-std::vector<VertexBuffer> cylinder_list;
-VertexBuffer spine;
+struct Object {
+	VertexBuffer vertices;
+	VertexBuffer normals;
+	std::vector<float> tex_coords;
 
-bool show_girth = false;
-bool show_spine = true;
+	Object() {}
+};
+std::vector<Object> branches;
+VertexBuffer spine;
+bool show_girth = true;
+bool show_spine = false;
+
+Light light((const float[4]){1, 1, 1, 1},
+	(const float[4]){1, 1, 1, 1},
+	(const float[4]){0.1, 0.1, 0.1, 1},
+	(const float[4]){0, 0, 20, 1});
 
 void assert(bool condition, const char* message) {
 	if (!condition) {
@@ -59,134 +89,238 @@ void assert(bool condition, const char* message) {
 	}
 }
 
+#define PITCH_ANGLE "pitch"
+#define YAW_ANGLE "yaw"
+#define ROLL_ANGLE "roll"
+#define BASE_RADIUS "radius"
+#define RADIUS_SCALE "rscale"
+#define BASE_LENGTH "length"
+#define LENGTH_SCALE "lscale"
+#define INITIAL_AXIOM "w"
+
+#define degreeToRad(angle) ((angle) * M_PI / 180.0)
+
+bool parseLSystemFile(const char* filename) {
+	bool ok = true;
+	std::ifstream fin(filename);
+	while(!fin.eof() && fin.good() && ok) {
+		std::string str;
+
+		fin >> str;
+		if (str.size() > 0) {
+			if (str[0] == '#') {
+				std::string garbage;
+				std::getline(fin, garbage);
+			} else {
+				std::string op;
+				fin >> op;
+				if (op == "=") {
+					if (str == PITCH_ANGLE) {
+						fin >> pitch;
+						pitch = degreeToRad(pitch);
+					} else if (str == YAW_ANGLE) {
+						fin >> yaw;
+						yaw = degreeToRad(yaw);
+					} else if (str == ROLL_ANGLE) {
+						fin >> roll;
+						roll = degreeToRad(roll);
+					} else if (str == BASE_LENGTH) {
+						fin >> base_length;
+					} else if (str == LENGTH_SCALE) {
+						fin >> length_scale;
+					} else if (str == BASE_RADIUS) {
+						fin >> base_radius;
+					} else if (str == RADIUS_SCALE) {
+						fin >> radius_scale;
+					} else if (str == INITIAL_AXIOM) {
+						fin >> initial_axoim;
+					} else {
+						std::cout << "Invalid variable: " << str << '\n';
+						ok = false;
+					}
+				} else if (op == "->") {
+					if (str.size() != 1 || !std::isalpha(str[0])) {
+						std::cout << "grammar rule " << str << " must be a single character\n";
+						ok = false;
+					} else {
+						std::string rule;
+						std::getline(fin, rule);
+						if (rule.size() == 0) {
+							std::cout << "Warning: rule for " << str << " is empty\n";
+						}
+						grammar[str[0]] = rule;
+					}
+				} else {
+					std::cout << "Invalid token: " << op << '\n';
+					ok = false;
+				}
+			}
+		}
+	}
+
+	return ok && fin.eof();
+}
+
 std::string expandFractal(std::string fractal, Grammar grammar) {
 	std::string result;
 	for(int i = 0; i < (int)fractal.size(); ++i) {
 		char c = fractal[i];
 		bool replaced = false;
-		for(auto it = grammar.begin(); it != grammar.end(); it++) {
-			if (c == it->first) {
-				result += it->second;
-				replaced = true;
-				break;
+		if (std::isalpha(c)) {
+			for(auto it = grammar.begin(); it != grammar.end(); it++) {
+				if (c == it->first) {
+					result += it->second;
+					replaced = true;
+					break;
+				}
 			}
 		}
-		if (!replaced && c != ' ') {
+		if (!replaced && !std::isspace(c)) {
 			result += c;
 		}
 	}
 	return result;
 }
 
-void generateRodVertices(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6) {
-	Vec3 l = v2 - v1;
+void generateBranch(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6) {
+	sections = std::max(sections, 3);
+	assert(v1 != v2, "branch points are the same");
 
-	Vec3 x = l + Vec3(1, 1, 1);
+	// generate axis
+	Vec3 l = v2 - v1;
+	Vec3 x = l + Vec3(1, 0, 0);
+	if (Vec3::crossProduct(x, l) == Vec3(0, 0, 0)) {
+		x += Vec3(0, 1, 0);
+	}
 	x -= Vec3::project(x, l);
 	x.normalize();
-
-	Vec3 y = Vec3::crossProduct(x, l);
+	Vec3 y = Vec3::crossProduct(l, x);
 	y.normalize();
 
-	cylinder_list.resize(cylinder_list.size() + 1);
-	VertexBuffer& cur_buffer = cylinder_list.back();
+	// create new object
+	branches.push_back(Object());
+	Object& branch = branches.back();
+	VertexBuffer& vertices = branch.vertices;
+	VertexBuffer& normals = branch.normals;
+	std::vector<float>& tex_coords = branch.tex_coords;
 
+	// calculate vertices, normals, tex coords
 	for(int i = 0; i < sections + 1; i++) {
 		float angle = 2.0 * M_PI * (i % sections) / sections;
 		Vec3 r = std::cos(angle) * x + std::sin(angle) * y;
 		Vec3 p1 = v1 + r1 * r;
 		Vec3 p2 = v2 + r2 * r;
 
-		cur_buffer.push_back(p1);
-		cur_buffer.push_back(p2);
+		vertices.push_back(p2);
+		vertices.push_back(p1);
+
+		Vec3 tangent = Vec3::crossProduct(p2 - p1, r);
+		Vec3 normal = Vec3::crossProduct(tangent, p2 - p1);
+		normal.normalize();
+
+		normals.push_back(normal);
+		normals.push_back(normal);
+
+		float tex_x = (float)i / sections;
+
+		tex_coords.push_back(tex_x);
+		tex_coords.push_back(1.0);
+		tex_coords.push_back(tex_x);
+		tex_coords.push_back(0.0);
 	}
 }
 
-void generateFractalVertices(std::string fractal, State initial_state,
-		float fractal_scale, float angle_increment) {
+void generateFractal() {
+	fractal = initial_axoim;
+	for(int i = 0; i < fractal_depth; i++) {
+		fractal = expandFractal(fractal, grammar);
+	}
+
 	std::vector<State> state_stack;
+	State initial_state(Vec3(0, -7, 0), base_radius, base_length);
 	state_stack.push_back(initial_state);
 
-	cylinder_list.clear();
+	branches.clear();
 	spine.clear();
 
 	for(int i = 0; i < (int)fractal.size(); ++i) {
 		State& cur_state = state_stack.back();
-		switch(fractal[i]) {
-			case 'F':
-			case 'X':
-				{
-					// draw forward
-					Vec3 p1 = cur_state.position;
+		char c = fractal[i];
 
-					cur_state.position += fractal_scale * cur_state.axis[1];
+		if (std::isalpha(c)) {
+			// draw forward
+			Vec3 p1 = cur_state.position;
 
-					Vec3 p2 = cur_state.position;
-					float radius1 = cur_state.radius;
-					cur_state.radius *= (10.0 - fractal_scale)/10.0;
+			cur_state.position += cur_state.length * cur_state.axis[1];
 
-					generateRodVertices(p1, p2, radius1, cur_state.radius);
+			Vec3 p2 = cur_state.position;
+			float radius1 = cur_state.radius;
+			cur_state.radius *= radius_scale;
+			
+			// cur_state.radius *= (10.0 - fractal_scale)/10.0;
 
-					spine.push_back(p1);
-					spine.push_back(p2);
+			// cur_state.radius *= 1.0 - 1.0 / std::pow(2, fractal_depth);
 
-					float roll = angle_increment * fractal_scale;
-					Matrix rotation = calcRotationMatrix(roll, cur_state.axis[1]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
+			generateBranch(p1, p2, radius1, cur_state.radius, 8);
 
-				}
-				break;
+			spine.push_back(p1);
+			spine.push_back(p2);
+		} else if (c == '[') {
+			// push stack
+			state_stack.push_back(cur_state);
+		} else if (c == ']') {
+			// pop stack
+			assert(state_stack.size() > 1, "popping initial state");
+			state_stack.pop_back();
+		} else if (c == '*') {
+			cur_state.length *= length_scale;
+		} else if (!std::isspace(c)) {
+			Vec3 axis;
+			float angle = 0.0;
+			switch(c) {
+				case '+': // rotate left
+					axis = cur_state.axis[2];
+					angle = yaw;
+					break;
 
-			case '+':
-				{
-					// rotate counter-clockwise
-					Matrix rotation = calcRotationMatrix(angle_increment, cur_state.axis[2]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-					rotation = calcRotationMatrix(M_PI / 3.0, cur_state.axis[1]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-				}
-				break;
-
-			case '-':
-				{
-					// rotate clockwise
-					Matrix rotation = calcRotationMatrix(-angle_increment, cur_state.axis[2]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-					rotation = calcRotationMatrix(-M_PI / 3.0, cur_state.axis[1]);
-					for(int i = 0; i < 3; i++) {
-						cur_state.axis[i] = cur_state.axis[i] * rotation;
-					}
-				}
-				break;
-
-			case '[':
-				// push stack
-				state_stack.push_back(cur_state);
-				break;
-
-			case ']':
-				// pop stack
-				assert(state_stack.size() > 1, "popping initial state");
-				state_stack.pop_back();
-				break;
-
-			case ' ':
-			case '\t':
-			case '\n':
-			case '\v':
-				break;
-
-			default:
-				std::cout << "invalid token: " << fractal[i] << '\n';
-				throw std::runtime_error("invalid token");
+				case '-': // rotate right
+					axis = cur_state.axis[2];
+					angle = -yaw;
+					break;
+					
+				case '&': // pitch down
+					axis = cur_state.axis[0];
+					angle = -pitch;
+					break;
+					
+				case '^': // pitch up
+					axis = cur_state.axis[0];
+					angle = pitch;
+					break;
+					
+				case '\\': // roll left
+					axis = cur_state.axis[1];
+					angle = -roll;
+					break;
+					
+				case '/': // roll right
+					axis = cur_state.axis[1];
+					angle = roll;
+					break;
+					
+				case '|': // turn around
+					axis = cur_state.axis[2];
+					angle = M_PI;
+					break;
+					
+				default: // invalid token
+					std::cout << "invalid token: " << fractal[i] << '\n';
+					throw std::runtime_error("invalid token");
+			}
+			Matrix rotation = calcRotationMatrix(angle, axis);
+			for(int i = 0; i < 3; i++) {
+				cur_state.axis[i] = cur_state.axis[i] * rotation;
+			}
 		}
 	}
 }
@@ -202,25 +336,6 @@ void keyboardInput(unsigned char key, int x, int y) {
 			show_spine = !show_spine;
 			break;
 	}
-}
-
-void generateFractal() {
-	fractal = "X";
-	for(int i = 0; i < fractal_depth; i++) {
-		fractal = expandFractal(fractal, grammar);
-	}
-	fractal_scale = FULL_SCALE / std::pow(2, fractal_depth);
-
-	State initial_state;
-	initial_state.position = Vec3(0, -7, 0);
-	initial_state.radius = girth;
-	for(int i = 0; i < 3; i++) {
-		Vec3 v;
-		v[i] = 1;
-		initial_state.axis[i] = v;
-	}
-
-	generateFractalVertices(fractal, initial_state, fractal_scale, angle_increment);
 }
 
 void specialKeyboardInput(int key, int x, int y) {
@@ -251,10 +366,12 @@ void mouseAction(int button, int state, int x, int y) {
 			
 		case 3: // mouse wheel up
 			camera_pos[2] -= 1;
+			light.position[2] -= 1;
 			break;
 			
 		case 4: // mouse wheel down
 			camera_pos[2] += 1;
+			light.position[2] += 1;
 			break;
 			
 		default:
@@ -285,23 +402,42 @@ Vec3 getArcballVector(int x, int y) {
 	return point;
 }
 
-void drawTriangleStrip(const VertexBuffer& buffer) {
-	glColor3f(1, 1, 1);
-	glBegin(GL_TRIANGLE_STRIP);
-	for(int i = 0; i < (int)buffer.size(); ++i) {
-		const Vec3& v = buffer[i];
-		glVertex3f(v.x, v.y, v.z);
-	}
-	glEnd();
+void drawBranch(const Object& object) {
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glVertexPointer(3, GL_FLOAT, 0, object.vertices.data());
+
+	glEnableClientState(GL_NORMAL_ARRAY);
+	glNormalPointer(GL_FLOAT, 0, object.normals.data());
+
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	glTexCoordPointer(2, GL_FLOAT, 0, object.tex_coords.data());
+
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, object.vertices.size());
+
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_NORMAL_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 }
 
-// GLUT callback to handle rendering the scene
-void renderScene(void)
-{
+void renderScene() {
 	//rotation
 	static Matrix rotation_matrix;
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glEnable(GL_NORMALIZE);
+	glShadeModel(GL_SMOOTH);
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+
+	glPolygonMode(GL_FRONT, GL_FILL);
+
+	glEnable(GL_LIGHTING);
+	glEnable(GL_LIGHT0);
+	glLightfv(GL_LIGHT0, GL_SPECULAR, light.specular);
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, light.diffuse);
+	glLightfv(GL_LIGHT0, GL_AMBIENT, light.ambient);
+	glLightfv(GL_LIGHT0, GL_POSITION, light.position);
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
@@ -317,7 +453,6 @@ void renderScene(void)
 			   0, 0, 0, 	// Lookat position
   			   0, 1, 0 );	// Up vector
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	glPushMatrix();
 	{
@@ -336,72 +471,26 @@ void renderScene(void)
 			}
 		}
 		
-		// glRotatef(rotation_angle * 180 / M_PI, rotation_axis.x, rotation_axis.y, rotation_axis.z);
 		glMultMatrixf(rotation_matrix.data);
 
 		if (show_spine) {
-			glColor3f(1, 1, 1);
-			glBegin(GL_LINES);
-			for(int i = 0; i < (int)spine.size(); i++) {
-				const Vec3& v = spine[i];
-				glVertex3f(v.x, v.y, v.z);
-			}
-			glEnd();
+			glDisable(GL_LIGHTING);
+			glEnableClientState(GL_VERTEX_ARRAY);
+			glVertexPointer(3, GL_FLOAT, 0, spine.data());
+			glDrawArrays(GL_LINES, 0, spine.size());
+			glDisableClientState(GL_VERTEX_ARRAY);
+			glEnable(GL_LIGHTING);
 		}
 
 		if (show_girth) {
-			for(int i = 0; i < (int)cylinder_list.size(); i++) {
-				drawTriangleStrip(cylinder_list[i]);
+			for(int i = 0; i < (int)branches.size(); i++) {
+				drawBranch(branches[i]);
 			}
 		}
-
-		// drawFractal(fractal, initial_state, fractal_scale, angle_increment);
 	}
 	glPopMatrix();
 
 	glutSwapBuffers();
-}
-
-bool parseLSystemFile(const char* filename) {
-	std::ifstream fin(filename);
-	while(!fin.eof() && fin.good()) {
-		std::string str;
-
-		fin >> str;
-		if (str.size() > 0) {
-			if (str[0] == '#') {
-				std::string garbage;
-				std::getline(fin, garbage);
-			} else {
-				std::string op;
-				fin >> op;
-				if (op == "=") {
-					if (str == "angle") {
-						fin >> angle_increment;
-						angle_increment *= M_PI / 180.0;
-					} else if (str == "girth") {
-						fin >> girth;
-					} else {
-						std::cout << "Invalid variable: " << str << '\n';
-					}
-				} else if (op == "->") {
-					if (str.size() != 1) {
-						std::cout << "rule " << str << " must be one character\n";
-					} else {
-						std::string rule;
-						std::getline(fin, rule);
-						if (rule.size() == 0) {
-							std::cout << "Warning: rule for " << str << " is empty\n";
-						}
-						grammar[str[0]] = rule;
-					}
-				} else {
-					std::cout << "Invalid operation: " << op << '\n';
-				}
-			}
-		}
-	}
-	return fin.eof();
 }
 
 int main(int argc, char** argv) {

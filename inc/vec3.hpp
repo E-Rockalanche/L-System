@@ -22,6 +22,8 @@ public:
 	friend Vec3 operator*(const Vec3& v2, float scalar);
 	friend Vec3 operator/(const Vec3& v1, float scalar);
 	friend Vec3 operator-(const Vec3& v);
+	friend bool operator==(const Vec3& v1, const Vec3& v2);
+	friend bool operator!=(const Vec3& v1, const Vec3& v2);
 	float& operator[](int index);
 	float operator[](int index) const;
 	float length() const;

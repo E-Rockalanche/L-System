@@ -123,6 +123,14 @@ Vec3 operator-(const Vec3& v) {
 	return result;
 }
 
+bool operator==(const Vec3& v1, const Vec3& v2) {
+	return v1.x == v2.x && v1.y == v2.y && v1.z == v2.z;
+}
+
+bool operator!=(const Vec3& v1, const Vec3& v2) {
+	return !(v1 == v2);
+}
+
 float& Vec3::operator[](int index) {
 	switch(index) {
 		case 0:
