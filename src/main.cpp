@@ -20,6 +20,7 @@ Eric Roberts
 #include "vec3.hpp"
 #include "matrix.hpp"
 #include "light.hpp"
+#include "stb_image.h"
 
 #define SCREEN_WIDTH 512
 #define SCREEN_HEIGHT 512
@@ -57,6 +58,7 @@ float base_radius = 0.5;
 float radius_scale = 0.5;
 float base_length = 10.0;
 float length_scale = 0.5;
+int texture_handle = 0;
 
 // arcball variables
 int last_mpos[2];
@@ -89,6 +91,53 @@ void assert(bool condition, const char* message) {
 	}
 }
 
+void checkGLError(const char* message) {
+	GLenum error_enum = glGetError();
+	if (GL_NO_ERROR != error_enum) {
+		std::cout << "openGL error: " << error_enum << ", " << message << '\n';
+		exit(1);
+	}
+}
+
+unsigned int loadImage(std::string file, std::string path) {
+	std::string filename = path + file;
+	int width, height, nrChannels;
+	unsigned char* data = stbi_load(filename.c_str(), &width, &height, &nrChannels, 4);
+	
+	if (data == NULL) {
+		std::cout << "failed to load image " << filename << '\n';
+		exit(1);
+	}
+	
+	// create openGL texture
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	
+	checkGLError("after gen textures");
+	
+	// bind texture for future operations
+	glBindTexture(GL_TEXTURE_2D, texture);
+	
+	// give image to openGL
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+	
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	
+	GLenum error_enum = glGetError();
+	if (GL_NO_ERROR != error_enum) {
+		std::cout << "an openGL error occurred while loading " << filename << '\n';
+		exit(1);
+	}
+	
+	glBindTexture(GL_TEXTURE_2D, 0);
+	
+	stbi_image_free(data);
+	return texture;
+}
+
 #define PITCH_ANGLE "pitch"
 #define YAW_ANGLE "yaw"
 #define ROLL_ANGLE "roll"
@@ -96,13 +145,28 @@ void assert(bool condition, const char* message) {
 #define RADIUS_SCALE "rscale"
 #define BASE_LENGTH "length"
 #define LENGTH_SCALE "lscale"
+#define TEXTURE "texture"
 #define INITIAL_AXIOM "w"
 
 #define degreeToRad(angle) ((angle) * M_PI / 180.0)
 
-bool parseLSystemFile(const char* filename) {
+void parsePath(std::string full_path, std::string& filename, std::string& path) {
+	filename.clear();
+	for(int i = 0; i < (int)full_path.size(); ++i) {
+		char c = full_path[i];
+		filename += c;
+		if (c == '/' || c == '\\') {
+			path += filename;
+			filename.clear();
+		}
+	}
+}
+
+bool parseLSystemFile(std::string file, std::string path = "") {
+	parsePath(path + file, file, path);
+
 	bool ok = true;
-	std::ifstream fin(filename);
+	std::ifstream fin(file);
 	while(!fin.eof() && fin.good() && ok) {
 		std::string str;
 
@@ -134,6 +198,14 @@ bool parseLSystemFile(const char* filename) {
 						fin >> radius_scale;
 					} else if (str == INITIAL_AXIOM) {
 						fin >> initial_axoim;
+					} else if (str == TEXTURE) {
+						std::string tex_filename;
+						fin >> tex_filename;
+						texture_handle = loadImage(tex_filename, path);
+						if (texture_handle == 0) {
+							std::cout << "Could not load texture " << tex_filename << '\n';
+							ok = false;
+						}
 					} else {
 						std::cout << "Invalid variable: " << str << '\n';
 						ok = false;
@@ -221,10 +293,11 @@ void generateBranch(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6) {
 		normals.push_back(normal);
 		normals.push_back(normal);
 
-		float tex_x = (float)i / sections;
+		float tex_x = (float)i / (float)sections;
 
 		tex_coords.push_back(tex_x);
 		tex_coords.push_back(1.0);
+
 		tex_coords.push_back(tex_x);
 		tex_coords.push_back(0.0);
 	}
@@ -403,20 +476,35 @@ Vec3 getArcballVector(int x, int y) {
 }
 
 void drawBranch(const Object& object) {
+	assert(texture_handle != 0, "handle is 0");
+
+	glBindTexture(GL_TEXTURE_2D, texture_handle);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glVertexPointer(3, GL_FLOAT, 0, object.vertices.data());
 
 	glEnableClientState(GL_NORMAL_ARRAY);
 	glNormalPointer(GL_FLOAT, 0, object.normals.data());
 
+	assert(object.tex_coords.size(), "no tex coords");
+
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	glTexCoordPointer(2, GL_FLOAT, 0, object.tex_coords.data());
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, object.vertices.size());
 
+	checkGLError("after render");
+
+	/*
 	glDisableClientState(GL_VERTEX_ARRAY);
 	glDisableClientState(GL_NORMAL_ARRAY);
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	*/
 }
 
 void renderScene() {
@@ -424,13 +512,13 @@ void renderScene() {
 	static Matrix rotation_matrix;
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glEnable(GL_NORMALIZE);
-	glShadeModel(GL_SMOOTH);
 
+	/*
 	glEnable(GL_CULL_FACE);
 	glCullFace(GL_BACK);
-
 	glPolygonMode(GL_FRONT, GL_FILL);
+	*/
+
 
 	glEnable(GL_LIGHTING);
 	glEnable(GL_LIGHT0);
@@ -453,6 +541,7 @@ void renderScene() {
 			   0, 0, 0, 	// Lookat position
   			   0, 1, 0 );	// Up vector
 
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	glPushMatrix();
 	{
@@ -475,10 +564,14 @@ void renderScene() {
 
 		if (show_spine) {
 			glDisable(GL_LIGHTING);
+
 			glEnableClientState(GL_VERTEX_ARRAY);
 			glVertexPointer(3, GL_FLOAT, 0, spine.data());
+
 			glDrawArrays(GL_LINES, 0, spine.size());
+
 			glDisableClientState(GL_VERTEX_ARRAY);
+
 			glEnable(GL_LIGHTING);
 		}
 
@@ -496,6 +589,29 @@ void renderScene() {
 int main(int argc, char** argv) {
 	glutInit(&argc, argv);
 
+	glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGB);
+
+	glutInitWindowPosition(100,100);
+	glutInitWindowSize( SCREEN_WIDTH, SCREEN_HEIGHT );
+	glutCreateWindow("Assignment 4 - Eric Roberts");
+
+	glViewport( 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT );
+
+	glutDisplayFunc(renderScene);
+	glutIdleFunc(renderScene);
+	glutMouseFunc(mouseAction);
+	glutMotionFunc(mouseMotion);
+	glutKeyboardFunc(keyboardInput);
+	glutSpecialFunc(specialKeyboardInput);
+	
+	glEnable(GL_BLEND);
+	glEnable(GL_TEXTURE_2D);
+	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	
+	glShadeModel(GL_SMOOTH);
+  	glEnable(GL_DEPTH_TEST);
+  	glEnable(GL_NORMALIZE);
+
 	if (argc == 1) {
 		std::cout << "usage is:   " << argv[0] << " L-system-file\n";
 		return 1;
@@ -507,27 +623,6 @@ int main(int argc, char** argv) {
 	}
 
 	generateFractal();
-
-	glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGB);
-
-	glutInitWindowPosition(100,100);
-	glutInitWindowSize( SCREEN_WIDTH, SCREEN_HEIGHT );
-	glutCreateWindow("Assignment 4 - Eric Roberts");
-
-	glViewport( 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT );
-	
-	glEnable(GL_BLEND);
-	glEnable(GL_TEXTURE_2D);
-	glShadeModel(GL_SMOOTH);
-  	glEnable(GL_DEPTH_TEST);
-  	glEnable(GL_NORMALIZE);
-
-	glutDisplayFunc(renderScene);
-	glutIdleFunc(renderScene);
-	glutMouseFunc(mouseAction);
-	glutMotionFunc(mouseMotion);
-	glutKeyboardFunc(keyboardInput);
-	glutSpecialFunc(specialKeyboardInput);
 
 	glutMainLoop();
 

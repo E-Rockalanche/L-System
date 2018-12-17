@@ -6,4 +6,5 @@ radius = 0.75
 rscale = 0.75
 length = 10
 lscale = 0.6
+texture = bark.png
 X -> F[&&*X]\[&&*X]\&*F[^^X]X
