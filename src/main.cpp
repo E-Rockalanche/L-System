@@ -476,8 +476,6 @@ Vec3 getArcballVector(int x, int y) {
 }
 
 void drawBranch(const Object& object) {
-	assert(texture_handle != 0, "handle is 0");
-
 	glBindTexture(GL_TEXTURE_2D, texture_handle);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -489,8 +487,6 @@ void drawBranch(const Object& object) {
 
 	glEnableClientState(GL_NORMAL_ARRAY);
 	glNormalPointer(GL_FLOAT, 0, object.normals.data());
-
-	assert(object.tex_coords.size(), "no tex coords");
 
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	glTexCoordPointer(2, GL_FLOAT, 0, object.tex_coords.data());
