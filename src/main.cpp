@@ -79,6 +79,7 @@ std::vector<Object> branches;
 VertexBuffer spine;
 bool show_girth = true;
 bool show_spine = false;
+bool show_texture = true;
 
 Light light((const float[4]){1, 1, 1, 1},
 	(const float[4]){1, 1, 1, 1},
@@ -404,9 +405,15 @@ void keyboardInput(unsigned char key, int x, int y) {
 		case 'G':
 			show_girth = !show_girth;
 			break;
+
 		case 's':
 		case 'S':
 			show_spine = !show_spine;
+			break;
+
+		case 't':
+		case 'T':
+			show_texture = !show_texture;
 			break;
 	}
 }
@@ -476,20 +483,22 @@ Vec3 getArcballVector(int x, int y) {
 }
 
 void drawBranch(const Object& object) {
-	glBindTexture(GL_TEXTURE_2D, texture_handle);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	if (show_texture) {
+		glBindTexture(GL_TEXTURE_2D, texture_handle);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(2, GL_FLOAT, 0, object.tex_coords.data());
+	}
 
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glVertexPointer(3, GL_FLOAT, 0, object.vertices.data());
 
 	glEnableClientState(GL_NORMAL_ARRAY);
 	glNormalPointer(GL_FLOAT, 0, object.normals.data());
-
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(2, GL_FLOAT, 0, object.tex_coords.data());
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, object.vertices.size());
 
