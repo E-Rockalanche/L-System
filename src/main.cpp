@@ -414,7 +414,7 @@ void keyboardInput(unsigned char key, int x, int y) {
 void specialKeyboardInput(int key, int x, int y) {
 	switch(key) {
 		case GLUT_KEY_UP:
-			fractal_depth = std::min(7, fractal_depth + 1);
+			fractal_depth = std::min(6, fractal_depth + 1);
 			generateFractal();
 			break;
 			
@@ -495,12 +495,10 @@ void drawBranch(const Object& object) {
 
 	checkGLError("after render");
 
-	/*
 	glDisableClientState(GL_VERTEX_ARRAY);
 	glDisableClientState(GL_NORMAL_ARRAY);
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 	glBindTexture(GL_TEXTURE_2D, 0);
-	*/
 }
 
 void renderScene() {
@@ -509,12 +507,9 @@ void renderScene() {
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	/*
 	glEnable(GL_CULL_FACE);
 	glCullFace(GL_BACK);
 	glPolygonMode(GL_FRONT, GL_FILL);
-	*/
-
 
 	glEnable(GL_LIGHTING);
 	glEnable(GL_LIGHT0);
@@ -537,8 +532,6 @@ void renderScene() {
 			   0, 0, 0, 	// Lookat position
   			   0, 1, 0 );	// Up vector
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
 	glPushMatrix();
 	{
 		// calculate arcball rotation
@@ -560,6 +553,8 @@ void renderScene() {
 
 		if (show_spine) {
 			glDisable(GL_LIGHTING);
+
+			glColor3f(1, 1, 1);
 
 			glEnableClientState(GL_VERTEX_ARRAY);
 			glVertexPointer(3, GL_FLOAT, 0, spine.data());
