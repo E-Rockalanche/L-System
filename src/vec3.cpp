@@ -1,3 +1,8 @@
+/*
+vec3.cpp
+Eric Roberts
+*/
+
 #include "vec3.hpp"
 #include <stdexcept>
 #include <cmath>

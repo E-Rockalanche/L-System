@@ -1,3 +1,8 @@
+/*
+vec3.hpp
+Eric Roberts
+*/
+
 #ifndef VEC3_HPP
 #define VEC3_HPP
 

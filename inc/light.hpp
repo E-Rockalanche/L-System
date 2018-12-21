@@ -1,3 +1,8 @@
+/*
+light.hpp
+Eric Roberts
+*/
+
 #ifndef LIGHT_HPP
 #define LIGHT_HPP
 
