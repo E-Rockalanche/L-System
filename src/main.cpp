@@ -64,7 +64,7 @@ int texture_handle = 0;
 int last_mpos[2];
 int cur_mpos[2];
 bool arcball_on = false;
-float camera_pos[3] = { 0.0, 0.0, 20.0 };
+float camera_pos[3] = { 0.0, 0.0, 80.0 };
 
 // render variables
 typedef std::vector<Vec3> VertexBuffer;
@@ -122,8 +122,8 @@ unsigned int loadImage(std::string file, std::string path) {
 	// give image to openGL
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 	
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	
@@ -257,11 +257,10 @@ std::string expandFractal(std::string fractal, Grammar grammar) {
 
 void generateBranch(Vec3 v1, Vec3 v2, float r1, float r2, int sections = 6) {
 	sections = std::max(sections, 3);
-	assert(v1 != v2, "branch points are the same");
 
 	// generate axis
 	Vec3 l = v2 - v1;
-	Vec3 x = l + Vec3(1, 0, 0);
+	Vec3 x = l + Vec3(1, 1, 1);
 	if (Vec3::crossProduct(x, l) == Vec3(0, 0, 0)) {
 		x += Vec3(0, 1, 0);
 	}

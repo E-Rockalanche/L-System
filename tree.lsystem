@@ -1,0 +1,9 @@
+pitch = 20
+roll = 120
+w = X
+radius = 0.75
+rscale = 0.7
+length = 10
+lscale = 0.7
+texture = bark.png
+X -> F[&&*X]/[&&*X]/&&*F\[&&X]/[&X]
